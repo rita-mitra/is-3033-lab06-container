@@ -1,0 +1,98 @@
+name: Build, scan, and test
+
+# Runs on every push and every pull request. Every step runs even when an
+# earlier one fails, so you always see the full picture. The last step turns
+# the run red if any gate failed.
+#
+# Gates (must all pass for a green run):
+#   1. hadolint: Dockerfile best practices
+#   2. Trivy misconfiguration scan of the Dockerfile (root user, latest tag, secrets in ENV, ...)
+#   3. Trivy secret scan of the whole repository
+#   4. Build the image and smoke-test it with one HTTP request
+# Report only (never fails the run):
+#   5. Trivy vulnerability scan of the built image (CRITICAL and HIGH counts for your README)
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: 1. Lint the Dockerfile (hadolint)
+        id: hadolint
+        continue-on-error: true
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+      - name: 2. Scan the Dockerfile for misconfigurations (Trivy)
+        id: misconfig
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "1"
+
+      - name: 3. Scan the repository for secrets (Trivy)
+        id: secrets
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: "1"
+
+      - name: 4a. Build the image
+        id: build
+        continue-on-error: true
+        run: docker build -t lab06:ci .
+
+      - name: 4b. Smoke test (start the container, request the page, stop it)
+        id: smoke
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          docker run -d --rm --name lab06-ci -p 8080:8080 lab06:ci
+          sleep 3
+          curl --fail --silent --show-error http://127.0.0.1:8080/ | tee page.txt
+          grep -q "IS 3033 Lab 06 status service" page.txt
+          docker stop lab06-ci
+
+      - name: 5. Count vulnerabilities in the image (report only, never fails)
+        if: steps.build.outcome == 'success'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: lab06:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Result
+        run: |
+          echo "1. hadolint ........ ${{ steps.hadolint.outcome }}"
+          echo "2. misconfig scan .. ${{ steps.misconfig.outcome }}"
+          echo "3. secret scan ..... ${{ steps.secrets.outcome }}"
+          echo "4a. build .......... ${{ steps.build.outcome }}"
+          echo "4b. smoke test ..... ${{ steps.smoke.outcome }}"
+          if [ "${{ steps.hadolint.outcome }}" != "success" ] || \
+             [ "${{ steps.misconfig.outcome }}" != "success" ] || \
+             [ "${{ steps.secrets.outcome }}" != "success" ] || \
+             [ "${{ steps.build.outcome }}" != "success" ] || \
+             [ "${{ steps.smoke.outcome }}" != "success" ]; then
+            echo "At least one gate failed. Read the steps above, fix the Dockerfile, and push again."
+            exit 1
+          fi
+          echo "All gates passed."
