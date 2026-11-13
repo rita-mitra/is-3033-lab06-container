@@ -1,10 +1,6 @@
 # IS 3033 Lab 06: Containers and DevSecOps
 
-![Build, scan, and test](https://github.com/OWNER/REPO/actions/workflows/scan.yml/badge.svg)
-
-A tiny status service, a container to run it in, and a pipeline that refuses to stay green until the container is built safely.
-
-**Replace `OWNER/REPO` in the badge line above with your own GitHub username and repository name.** The badge turns red or green with your latest push.
+A tiny status service, a container to run it in, and a gate script that refuses to pass until the container is built safely.
 
 ## What is in this repository
 
@@ -12,7 +8,8 @@ A tiny status service, a container to run it in, and a pipeline that refuses to 
 |---|---|
 | `app.py` | A small web service written with the Python standard library. It reports what the process serving the page looks like: which user it runs as, which OS userland and kernel it sees, whether it is inside a container, and whether a secret is in its environment. |
 | `Dockerfile` | The recipe that builds the container image. The starter version is deliberately wrong in three ways. Your job is to fix it. |
-| `.github/workflows/scan.yml` | The pipeline. It runs on every push: lint the Dockerfile, scan it for misconfigurations, scan the repository for secrets, build the image, smoke-test it, and count vulnerabilities in the image. |
+| `check.sh` | The gate. It runs the Dockerfile linter (hadolint), a misconfiguration scan (Trivy), builds the image, sends it one HTTP request, and counts vulnerabilities in the image. It exits red until all gates pass. `./check.sh --fast` runs only the two scans, in seconds; the lab installs that as a git pre-commit hook. |
+| `.github/workflows/scan.yml` | The same gates written for GitHub Actions, for anyone who wants to run them in the cloud. Not required for the lab. |
 | `.dockerignore` | Files that must never be copied into the image. |
 
 ## Run it
@@ -22,6 +19,13 @@ docker build -t lab06 .
 docker run -d --rm --name lab06 -p 8080:8080 lab06
 curl http://localhost:8080/
 docker stop lab06
+```
+
+## Check it
+
+```bash
+./check.sh          # full run
+./check.sh --fast   # scans only
 ```
 
 ## What I changed and why
@@ -36,7 +40,7 @@ Fill in this table as you harden the Dockerfile in Step 4 of the lab. One row pe
 
 ## Vulnerability count
 
-Record the CRITICAL and HIGH counts from step 5 of the pipeline (the report-only step).
+Record the CRITICAL and HIGH counts and the image size from step 5 of `check.sh`.
 
 | Image | CRITICAL | HIGH | Image size |
 |---|---|---|---|
