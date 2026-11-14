@@ -74,7 +74,17 @@ else
     fi
 
     line "5. Vulnerability count (report only, never fails)"
-    trivy image --quiet --severity CRITICAL,HIGH --ignore-unfixed --scanners vuln "$IMAGE" 2>/dev/null | grep -E '^Total:|\(' | head -5
+    COUNTS=$(trivy image --quiet --timeout 20m --format json --severity CRITICAL,HIGH --ignore-unfixed --scanners vuln "$IMAGE" 2>/dev/null | python3 -c '
+import json, sys
+found = [v["Severity"] for r in json.load(sys.stdin).get("Results") or [] for v in r.get("Vulnerabilities") or []]
+print("CRITICAL: %d   HIGH: %d" % (found.count("CRITICAL"), found.count("HIGH")))
+' 2>/dev/null)
+    if [ -n "$COUNTS" ]; then
+      echo "  $COUNTS"
+    else
+      echo "  The vulnerability scan did not finish. To see the error, run:"
+      echo "    trivy image --timeout 20m --severity CRITICAL,HIGH --ignore-unfixed --scanners vuln $IMAGE"
+    fi
     echo "  Image size: $(docker images "$IMAGE" --format '{{.Size}}')"
   fi
   line "Result"
